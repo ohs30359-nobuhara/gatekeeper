@@ -32,7 +32,7 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		// cache read only get request
 		if v, hit := cache.Get(key); hit {
-			w.Write(*(*[]byte)(unsafe.Pointer(&v)))
+			writeBody(w, *(*[]byte)(unsafe.Pointer(&v)))
 			return
 		}
 
@@ -46,7 +46,7 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(data.Status), data.Status)
 		return
 	}
-	w.Write(data.Body)
+	writeBody(w, data.Body)
 }
 
 // overwrite client request host
@@ -108,6 +108,13 @@ func curl(r *http.Request) DataSet {
 	dataSet.Body = buf.Bytes()
 
 	return dataSet
+}
+
+func writeBody(w http.ResponseWriter, body []byte) {
+	if _, e := w.Write(body); e != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("500 - Something bad happened!"))
+	}
 }
 
 func main() {
