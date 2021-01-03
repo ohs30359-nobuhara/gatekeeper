@@ -5,4 +5,6 @@ go 1.15
 require (
 	github.com/go-redis/redis/v8 v8.4.4
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
+	golang.org/x/net v0.0.0-20201224014010-6772e930b67b
+	golang.org/x/time v0.0.0-20201208040808-7e3f01d25324
 )

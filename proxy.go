@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/my/repo/cache"
+	"github.com/my/repo/rateLimit"
 	"io"
 	"io/ioutil"
 	"log"
@@ -20,9 +21,17 @@ type DataSet struct{
 }
 
 var cache, _ = customCache.Init(context.Background())
+var rateLimiter = rateLimit.Init(100)
+
 
 // proxy handler
 func proxy(w http.ResponseWriter, r *http.Request) {
+	// rate limit
+	if block := rateLimiter.Allow(); block {
+		http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+		return
+	}
+
 	var data DataSet
 
 	key := r.RequestURI
@@ -111,9 +120,11 @@ func curl(r *http.Request) DataSet {
 }
 
 func writeBody(w http.ResponseWriter, body []byte) {
+	w.WriteHeader(http.StatusOK)
+
 	if _, e := w.Write(body); e != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("500 - Something bad happened!"))
+		w.Write([]byte(http.StatusText(http.StatusInternalServerError)))
 	}
 }
 
