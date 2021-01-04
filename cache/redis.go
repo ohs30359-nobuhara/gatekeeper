@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/go-redis/redis/v8"
 	"log"
+	"strconv"
 	"time"
 )
 
@@ -12,13 +13,27 @@ type Redis struct {
 	context context.Context
 }
 
-func Init(ctx context.Context) (*Redis, error) {
+type Option struct {
+	Host string
+	Port int
+	Password string
+	Db int
+	TimeoutMs struct {
+		Read int
+		Write int
+	}
+}
+
+func Init(option Option) (*Redis, error) {
 	c := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-		Password: "",
-		DB: 0,
-		WriteTimeout: time.Millisecond * 1,
+		Addr: option.Host + ":" + strconv.Itoa(option.Port),
+		Password: option.Password,
+		DB: option.Db,
+		WriteTimeout: time.Millisecond * time.Duration(option.TimeoutMs.Write),
+		ReadTimeout:  time.Millisecond * time.Duration(option.TimeoutMs.Read),
 	})
+
+	ctx := context.Background()
 
 	if e := c.Ping(ctx).Err(); e != nil {
 		log.Println(e.Error())

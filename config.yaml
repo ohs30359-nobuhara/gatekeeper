@@ -1,0 +1,19 @@
+server:
+  port: 8000
+
+proxy:
+  rateLimit: 100
+  timeoutMs: 500
+  target:
+    host: localhost
+    port: 3000
+    schema: http
+
+redis:
+  host: localhost
+  port: 6379
+  password: ""
+  no: 0
+  timeoutMs:
+    read: 500
+    write: 300

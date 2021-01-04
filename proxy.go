@@ -2,10 +2,10 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"github.com/my/repo/cache"
 	"github.com/my/repo/rateLimit"
+	"github.com/my/repo/util"
 	"io"
 	"io/ioutil"
 	"log"
@@ -20,14 +20,20 @@ type DataSet struct{
 	Header http.Header
 }
 
-var cache, _ = customCache.Init(context.Background())
-var rateLimiter = rateLimit.Init(100)
+type ProxyConfig struct {
+	schema string
+	host string
+}
 
+var cache *customCache.Redis
+var config *util.Config
+var rateLimiter *rateLimit.RateLimit
+var proxyConfig *ProxyConfig
 
-// proxy handler
-func proxy(w http.ResponseWriter, r *http.Request) {
+// proxyHandler handler
+func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	// rate limit
-	if block := rateLimiter.Allow(); block {
+	if arrow := rateLimiter.Allow(); !arrow {
 		http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
 		return
 	}
@@ -60,16 +66,13 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 
 // overwrite client request host
 func cloneRequest(r *http.Request) *http.Request {
-	schema := "http"
-	host := "localhost:3000"
-
 	b, e := ioutil.ReadAll(r.Body)
 
 	if e != nil {
 		log.Fatal(e.Error())
 	}
 
-	url := fmt.Sprintf("%s://%s%s", schema, host, r.RequestURI)
+	url := fmt.Sprintf("%s://%s%s", proxyConfig.schema, proxyConfig.host, r.RequestURI)
 	req, e:= http.NewRequest(r.Method, url, bytes.NewReader(b))
 
 	if e != nil {
@@ -129,7 +132,45 @@ func writeBody(w http.ResponseWriter, body []byte) {
 }
 
 func main() {
-	if err := http.ListenAndServe(":8000", http.HandlerFunc(proxy)); err != nil {
+	// load config
+	config = util.ConfigLoad()
+
+	if config == nil {
+		panic("can't read config file...")
+	}
+
+	// set up redis
+	c, e := customCache.Init(customCache.Option {
+		Host: config.Redis.Host,
+		Port: config.Redis.Port,
+		Password: config.Redis.Password,
+		Db: config.Redis.No,
+		TimeoutMs: struct {
+			Read  int
+			Write int
+		}{Read: config.Redis.TimeoutMs.Read, Write: config.Redis.TimeoutMs.Write},
+	})
+
+	if e != nil {
+		panic("can't listen redis server")
+	}
+
+	cache = c
+
+	// setup rate limit
+	rateLimiter = rateLimit.Init(config.Proxy.RateLimit)
+
+	// listen server
+	p := ":" + config.Server.Port
+	log.Println("server listen localhost" + p)
+
+	// setup proxy config
+	proxyConfig = &ProxyConfig{
+		schema: config.Proxy.Target.Schema,
+		host: config.Proxy.Target.Host + ":" + config.Proxy.Target.Port,
+	}
+
+	if err := http.ListenAndServe(p, http.HandlerFunc(proxyHandler)); err != nil {
 		panic(err.Error())
 	}
 }
