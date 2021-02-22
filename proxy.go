@@ -33,37 +33,38 @@ var (
 	config *util.Config
 	rateLimiter *rateLimit.RateLimit
 	proxyConfig *ProxyConfig
-	exporter *metricsExporter.CacheMetrics
+	exporter *metricsExporter.MetricsExporter
 )
 
 // proxyHandler handler
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
+	// delete path "/proxy"
+	r.RequestURI = strings.Replace(r.RequestURI, "/proxy", "", 1)
+	// TODO: sort
+	key := r.RequestURI
+
 	// rate limit
 	if arrow := rateLimiter.Allow(); !arrow {
 		http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+		exporter.RateLimit(r.RequestURI)
 		return
 	}
 
 	var data DataSet
-
-	key := r.RequestURI
-
-	// delete path "/proxy"
-	r.RequestURI = strings.Replace(r.RequestURI, "/proxy", "", 1)
 
 	cr := cloneRequest(r)
 
 	if r.Method == "GET" {
 		// cache read only get request
 		if v, hit := cache.Get(key); hit {
-			exporter.Count(r.RequestURI, "true")
+			exporter.Cache(r.RequestURI, "true")
 			writeBody(w, *(*[]byte)(unsafe.Pointer(&v)))
 			return
 		}
 
 		data = curl(cr)
 		cache.Set(key, *(*string)(unsafe.Pointer(&data.Body)), time.Second * 10)
-		exporter.Count(r.RequestURI, "false")
+		exporter.Cache(r.RequestURI, "false")
 	} else {
 		data = curl(cr)
 	}
