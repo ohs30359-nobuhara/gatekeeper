@@ -40,8 +40,7 @@ var (
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	// delete path "/proxy"
 	r.RequestURI = strings.Replace(r.RequestURI, "/proxy", "", 1)
-	// TODO: sort
-	key := r.RequestURI
+	key := customCache.CreateKeyFromRequest(r)
 
 	// rate limit
 	if arrow := rateLimiter.Allow(); !arrow {
@@ -76,7 +75,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	writeBody(w, data.Body)
 }
 
-func health(w http.ResponseWriter, r *http.Request) {
+func healthHandler(w http.ResponseWriter, r *http.Request) {
 	writeBody(w, []byte(http.StatusText(http.StatusOK)))
 }
 
@@ -189,7 +188,7 @@ func main() {
 	}
 
 	http.HandleFunc("/proxy/", proxyHandler)
-	http.HandleFunc("/", health)
+	http.HandleFunc("/", healthHandler)
 	http.Handle("/metrics", promhttp.Handler())
 
 	if err := http.ListenAndServe(p, nil); err != nil {

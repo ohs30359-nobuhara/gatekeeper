@@ -27,7 +27,19 @@ or
 $ go build && ./gatekeeper 
 ```
 
-access to http://localhost:8000/
+access to http://localhost:8000/proxy/${origin_path}
 
+## EntryPoint 
+### /health
+health check entry point.
+return status code 200 & body "OK"
+
+### /metrics
+prometheus entry point.
+
+### /proxy/${origin_path}
+proxy entry point.
+
+return proxied response body & header.
 
 ## Option
