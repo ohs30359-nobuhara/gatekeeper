@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/my/repo/cache"
+	"github.com/my/repo/metricsExporter"
 	"github.com/my/repo/rateLimit"
 	"github.com/my/repo/util"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 	"unsafe"
 )
@@ -25,34 +28,42 @@ type ProxyConfig struct {
 	host string
 }
 
-var cache *customCache.Redis
-var config *util.Config
-var rateLimiter *rateLimit.RateLimit
-var proxyConfig *ProxyConfig
+var (
+	cache *customCache.Redis
+	config *util.Config
+	rateLimiter *rateLimit.RateLimit
+	proxyConfig *ProxyConfig
+	exporter *metricsExporter.MetricsExporter
+)
 
 // proxyHandler handler
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
+	// delete path "/proxy"
+	r.RequestURI = strings.Replace(r.RequestURI, "/proxy", "", 1)
+	key := customCache.CreateKeyFromRequest(r)
+
 	// rate limit
 	if arrow := rateLimiter.Allow(); !arrow {
 		http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+		exporter.RateLimit(r.RequestURI)
 		return
 	}
 
 	var data DataSet
-
-	key := r.RequestURI
 
 	cr := cloneRequest(r)
 
 	if r.Method == "GET" {
 		// cache read only get request
 		if v, hit := cache.Get(key); hit {
+			exporter.Cache(r.RequestURI, "true")
 			writeBody(w, *(*[]byte)(unsafe.Pointer(&v)))
 			return
 		}
 
 		data = curl(cr)
-		cache.Set(key, *(*string)(unsafe.Pointer(&data.Body)), time.Second * 1)
+		cache.Set(key, *(*string)(unsafe.Pointer(&data.Body)), time.Second * 10)
+		exporter.Cache(r.RequestURI, "false")
 	} else {
 		data = curl(cr)
 	}
@@ -62,6 +73,10 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeBody(w, data.Body)
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	writeBody(w, []byte(http.StatusText(http.StatusOK)))
 }
 
 // overwrite client request host
@@ -164,13 +179,19 @@ func main() {
 	p := ":" + config.Server.Port
 	log.Println("server listen localhost" + p)
 
+	exporter = metricsExporter.Init()
+
 	// setup proxy config
 	proxyConfig = &ProxyConfig{
 		schema: config.Proxy.Target.Schema,
 		host: config.Proxy.Target.Host + ":" + config.Proxy.Target.Port,
 	}
 
-	if err := http.ListenAndServe(p, http.HandlerFunc(proxyHandler)); err != nil {
+	http.HandleFunc("/proxy/", proxyHandler)
+	http.HandleFunc("/", healthHandler)
+	http.Handle("/metrics", promhttp.Handler())
+
+	if err := http.ListenAndServe(p, nil); err != nil {
 		panic(err.Error())
 	}
 }
